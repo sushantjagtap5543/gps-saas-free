@@ -19,4 +19,4 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3001 5000 5001 5002
 
-CMD ["sh", "-c",
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/main"]
