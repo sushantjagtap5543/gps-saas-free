@@ -109,4 +109,136 @@ export default function AdminUsersPage() {
                   className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-center gap-4">
-                   
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <User className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{user.name}</p>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Mail className="h-3 w-3" />
+                        {user.email}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <Badge variant={user.role === 'ADMIN' ? 'default' : 'secondary'}>
+                        <Shield className="h-3 w-3 mr-1" />
+                        {user.role}
+                      </Badge>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {user._count?.vehicles || 0} vehicles
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon">
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive"
+                        onClick={() => deleteMutation.mutate(user.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+function CreateUserForm({ onSuccess }: { onSuccess: () => void }) {
+  const queryClient = useQueryClient();
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'CLIENT',
+    maxVehicles: 5,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => api.post('/admin/users', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      onSuccess();
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Full Name</label>
+        <Input
+          value={formData.name}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          required
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Email</label>
+        <Input
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+          required
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Password</label>
+        <Input
+          type="password"
+          value={formData.password}
+          onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+          required
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Role</label>
+        <Select
+          value={formData.role}
+          onValueChange={(value) => setFormData({ ...formData, role: value })}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="CLIENT">Client</SelectItem>
+            <SelectItem value="ADMIN">Admin</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Vehicle Limit</label>
+        <Input
+          type="number"
+          value={formData.maxVehicles}
+          onChange={(e) => setFormData({ ...formData, maxVehicles: parseInt(e.target.value) })}
+          min={1}
+          max={100}
+        />
+      </div>
+
+      <Button type="submit" className="w-full" disabled={createMutation.isPending}>
+        {createMutation.isPending ? 'Creating...' : 'Create User'}
+      </Button>
+    </form>
+  );
+}
