@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: gpstrack
       POSTGRES_USER: gpsadmin
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Database password is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backups:/backups
@@ -76,7 +76,7 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://gpsadmin:${DB_PASSWORD}@postgres:5432/gpstrack
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:?JWT secret is required}
+      JWT_SECRET: ${JWT_SECRET}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
