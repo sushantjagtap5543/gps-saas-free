@@ -11,7 +11,7 @@ export class ReportsService {
     endDate: Date,
     userId: string,
   ) {
-    const locations = await this.prisma.location.findMany({
+    const positions = await this.prisma.position.findMany({
       where: {
         vehicleId,
         timestamp: {
@@ -23,9 +23,9 @@ export class ReportsService {
     });
 
     let totalDistance = 0;
-    for (let i = 1; i < locations.length; i++) {
-      const prev = locations[i - 1];
-      const curr = locations[i];
+    for (let i = 1; i < positions.length; i++) {
+      const prev = positions[i - 1];
+      const curr = positions[i];
       const distance = this.calculateDistance(
         prev.latitude,
         prev.longitude,
@@ -41,7 +41,7 @@ export class ReportsService {
       endDate,
       totalDistance: Math.round(totalDistance * 100) / 100,
       unit: 'km',
-      locations: locations.length,
+      positions: positions.length,
     };
   }
 
@@ -52,7 +52,7 @@ export class ReportsService {
     minDuration: number,
     userId: string,
   ) {
-    const locations = await this.prisma.location.findMany({
+    const positions = await this.prisma.position.findMany({
       where: {
         vehicleId,
         timestamp: {
@@ -66,24 +66,23 @@ export class ReportsService {
     const stops = [];
     let currentStop = null;
 
-    for (let i = 0; i < locations.length; i++) {
-      const loc = locations[i];
+    for (let i = 0; i < positions.length; i++) {
+      const pos = positions[i];
       
-      if (loc.speed < 5) {
+      if (pos.speed < 5) {
         if (!currentStop) {
           currentStop = {
-            startTime: loc.timestamp,
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            address: loc.address,
+            startTime: pos.timestamp,
+            latitude: pos.latitude,
+            longitude: pos.longitude,
           };
         }
       } else if (currentStop) {
-        const duration = (loc.timestamp.getTime() - currentStop.startTime.getTime()) / 1000 / 60;
+        const duration = (pos.timestamp.getTime() - currentStop.startTime.getTime()) / 1000 / 60;
         if (duration >= minDuration) {
           stops.push({
             ...currentStop,
-            endTime: locations[i - 1]?.timestamp,
+            endTime: positions[i - 1]?.timestamp,
             duration: Math.round(duration),
           });
         }
@@ -106,7 +105,7 @@ export class ReportsService {
     endDate: Date,
     userId: string,
   ) {
-    const locations = await this.prisma.location.findMany({
+    const positions = await this.prisma.position.findMany({
       where: {
         vehicleId,
         timestamp: {
@@ -120,41 +119,39 @@ export class ReportsService {
     const trips = [];
     let currentTrip = null;
 
-    for (let i = 0; i < locations.length; i++) {
-      const loc = locations[i];
+    for (let i = 0; i < positions.length; i++) {
+      const pos = positions[i];
       
-      if (loc.speed >= 5) {
+      if (pos.speed >= 5) {
         if (!currentTrip) {
           currentTrip = {
-            startTime: loc.timestamp,
+            startTime: pos.timestamp,
             startLocation: {
-              latitude: loc.latitude,
-              longitude: loc.longitude,
-              address: loc.address,
+              latitude: pos.latitude,
+              longitude: pos.longitude,
             },
             distance: 0,
-            maxSpeed: loc.speed,
+            maxSpeed: pos.speed,
           };
         } else {
-          const prev = locations[i - 1];
+          const prev = positions[i - 1];
           const distance = this.calculateDistance(
             prev.latitude,
             prev.longitude,
-            loc.latitude,
-            loc.longitude,
+            pos.latitude,
+            pos.longitude,
           );
           currentTrip.distance += distance;
-          currentTrip.maxSpeed = Math.max(currentTrip.maxSpeed, loc.speed);
+          currentTrip.maxSpeed = Math.max(currentTrip.maxSpeed, pos.speed);
         }
       } else if (currentTrip) {
-        const duration = (loc.timestamp.getTime() - currentTrip.startTime.getTime()) / 1000 / 60;
+        const duration = (pos.timestamp.getTime() - currentTrip.startTime.getTime()) / 1000 / 60;
         trips.push({
           ...currentTrip,
-          endTime: locations[i - 1]?.timestamp,
+          endTime: positions[i - 1]?.timestamp,
           endLocation: {
-            latitude: locations[i - 1]?.latitude,
-            longitude: locations[i - 1]?.longitude,
-            address: locations[i - 1]?.address,
+            latitude: positions[i - 1]?.latitude,
+            longitude: positions[i - 1]?.longitude,
           },
           duration: Math.round(duration),
           distance: Math.round(currentTrip.distance * 100) / 100,
@@ -174,7 +171,7 @@ export class ReportsService {
   }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371; // Earth radius in km
+    const R = 6371;
     const dLat = this.toRad(lat2 - lat1);
     const dLon = this.toRad(lon2 - lon1);
     const a =

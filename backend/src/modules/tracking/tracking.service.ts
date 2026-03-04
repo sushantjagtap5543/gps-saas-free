@@ -14,14 +14,14 @@ export class TrackingService {
       throw new NotFoundException('Vehicle not found');
     }
 
-    const location = await this.prisma.location.findFirst({
+    const position = await this.prisma.position.findFirst({
       where: { vehicleId },
       orderBy: { timestamp: 'desc' },
     });
 
     return {
       vehicle,
-      location,
+      position,
     };
   }
 
@@ -48,7 +48,7 @@ export class TrackingService {
       if (endDate) where.timestamp.lte = endDate;
     }
 
-    const locations = await this.prisma.location.findMany({
+    const positions = await this.prisma.position.findMany({
       where,
       orderBy: { timestamp: 'desc' },
       take: limit || 1000,
@@ -56,8 +56,8 @@ export class TrackingService {
 
     return {
       vehicle,
-      locations,
-      count: locations.length,
+      positions,
+      count: positions.length,
     };
   }
 
@@ -75,7 +75,7 @@ export class TrackingService {
       throw new NotFoundException('Vehicle not found');
     }
 
-    const locations = await this.prisma.location.findMany({
+    const positions = await this.prisma.position.findMany({
       where: {
         vehicleId,
         timestamp: {
@@ -88,10 +88,10 @@ export class TrackingService {
 
     return {
       vehicle,
-      route: locations,
+      route: positions,
       startDate,
       endDate,
-      points: locations.length,
+      points: positions.length,
     };
   }
 
@@ -99,7 +99,7 @@ export class TrackingService {
     const vehicles = await this.prisma.vehicle.findMany({
       where: userRole === 'ADMIN' ? {} : { userId },
       include: {
-        locations: {
+        positions: {
           orderBy: { timestamp: 'desc' },
           take: 1,
         },
@@ -108,7 +108,7 @@ export class TrackingService {
 
     return vehicles.map(vehicle => ({
       ...vehicle,
-      currentLocation: vehicle.locations[0] || null,
+      currentPosition: vehicle.positions[0] || null,
     }));
   }
 }

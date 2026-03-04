@@ -31,8 +31,6 @@ export class VehiclesController {
     return this.vehiclesService.findAll(req.user.userId, req.user.role, {
       search,
       status,
-      limit,
-      offset,
     });
   }
 
