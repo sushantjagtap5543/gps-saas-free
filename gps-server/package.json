@@ -1,0 +1,25 @@
+{
+  "name": "gps-free-saas-server",
+  "version": "1.0.0",
+  "description": "Custom GPS TCP/UDP server for device protocols",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:dev": "ts-node src/server.ts",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "binary-parser": "^2.2.1",
+    "buffer": "^6.0.3",
+    "date-fns": "^2.30.0",
+    "redis": "^4.6.0",
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
