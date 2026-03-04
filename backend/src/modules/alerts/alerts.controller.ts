@@ -1,75 +1,74 @@
-import { Controller, Get, Put, Param, UseGuards, Request, Query, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  ParseBoolPipe,
+  DefaultValuePipe,
+  ParseIntPipe,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AlertsService } from './alerts.service';
-import { PrismaService } from '../../common/prisma.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
 
 @ApiTags('Alerts')
-@Controller('alerts')
-@UseGuards(JwtAuthGuard)
+@Controller('api/alerts')
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class AlertsController {
-  constructor(
-    private alertsService: AlertsService,
-    private prisma: PrismaService,
-  ) {}
+  constructor(private readonly alertsService: AlertsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get my alerts' })
-  async getMyAlerts(@Request() req, @Query('unread') unread?: string) {
-    return this.alertsService.getUserAlerts(
-      req.user.userId,
-      unread === 'true'
-    );
+  @ApiOperation({ summary: 'Get all alerts' })
+  @ApiQuery({ name: 'isRead', required: false, type: Boolean })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'offset', required: false, type: Number })
+  findAll(
+    @Query('isRead') isRead?: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
+    @Request() req,
+  ) {
+    return this.alertsService.findAll(req.user.userId, req.user.role, {
+      isRead: isRead !== undefined ? isRead === 'true' : undefined,
+      limit,
+      offset,
+    });
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'Get unread alert count' })
-  async getUnreadCount(@Request() req) {
-    const count = await this.prisma.alert.count({
-      where: { userId: req.user.userId, isRead: false },
-    });
-    return { count };
+  @ApiOperation({ summary: 'Get unread alerts count' })
+  getUnreadCount(@Request() req) {
+    return this.alertsService.getUnreadCount(req.user.userId, req.user.role);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get alert by ID' })
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.alertsService.findOne(id, req.user.userId, req.user.role);
   }
 
   @Put(':id/read')
   @ApiOperation({ summary: 'Mark alert as read' })
-  async markRead(@Param('id') id: string, @Request() req) {
-    return this.alertsService.markAsRead(id, req.user.userId);
+  markAsRead(@Param('id') id: string, @Request() req) {
+    return this.alertsService.markAsRead(id, req.user.userId, req.user.role);
   }
 
   @Put('read-all')
   @ApiOperation({ summary: 'Mark all alerts as read' })
-  async markAllRead(@Request() req) {
-    return this.alertsService.markAllRead(req.user.userId);
+  markAllAsRead(@Request() req) {
+    return this.alertsService.markAllAsRead(req.user.userId, req.user.role);
   }
 
-  // Admin only: Alert configuration
-  @Get('config')
-  @Roles('ADMIN')
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Get alert configurations (Admin only)' })
-  async getAlertConfigs() {
-    return this.prisma.alertConfig.findMany();
-  }
-
-  @Put('config/:type')
-  @Roles('ADMIN')
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Update alert configuration (Admin only)' })
-  async updateAlertConfig(
-    @Param('type') type: string,
-    @Body() data: any,
-  ) {
-    return this.prisma.alertConfig.upsert({
-      where: { alertType: type },
-      update: data,
-      create: {
-        alertType: type,
-        ...data,
-      },
-    });
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete alert' })
+  remove(@Param('id') id: string, @Request() req) {
+    return this.alertsService.remove(id, req.user.userId, req.user.role);
   }
 }

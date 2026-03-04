@@ -1,113 +1,156 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class AlertsService {
-  constructor(
-    private prisma: PrismaService,
-    private notifications: NotificationsService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
-  async checkAndCreateAlert(data: {
-    type: string;
-    userId: string;
-    vehicleId: string;
-    message: string;
-    severity?: string;
-    latitude?: number;
-    longitude?: number;
+  async findAll(userId: string, userRole: UserRole, options?: { 
+    isRead?: boolean; 
+    limit?: number;
+    offset?: number;
   }) {
-    // Check if alert type is enabled
-    const config = await this.prisma.alertConfig.findUnique({
-      where: { alertType: data.type },
-    });
-
-    if (!config || !config.isEnabled) {
-      return null; // Alert type disabled
+    const where: any = userRole === UserRole.ADMIN ? {} : { userId };
+    
+    if (options?.isRead !== undefined) {
+      where.isRead = options.isRead;
     }
 
-    // Determine who to notify
-    const channels = config.channels;
-    const alert = await this.notifications.createAlert(data.userId, {
-      ...data,
-      severity: data.severity || 'medium',
+    const [alerts, total] = await Promise.all([
+      this.prisma.alert.findMany({
+        where,
+        include: {
+          vehicle: {
+            select: {
+              id: true,
+              name: true,
+              plateNumber: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: options?.limit || 50,
+        skip: options?.offset || 0,
+      }),
+      this.prisma.alert.count({ where }),
+    ]);
+
+    return {
+      alerts,
+      pagination: {
+        total,
+        limit: options?.limit || 50,
+        offset: options?.offset || 0,
+      },
+    };
+  }
+
+  async findOne(id: string, userId: string, userRole: UserRole) {
+    const alert = await this.prisma.alert.findUnique({
+      where: { id },
+      include: {
+        vehicle: {
+          select: {
+            id: true,
+            name: true,
+            plateNumber: true,
+          },
+        },
+      },
     });
 
-    // Send real-time notification
-    if (channels.includes('WEBSOCKET')) {
-      this.notifications.sendToUser(data.userId, 'new_alert', alert);
-      
-      if (config.notifyAdmin) {
-        this.notifications.sendToAdmins('admin_alert', {
-          ...alert,
-          vehicleInfo: await this.getVehicleInfo(data.vehicleId),
-        });
-      }
+    if (!alert) {
+      throw new NotFoundException('Alert not found');
     }
 
-    // Send email if enabled
-    if (channels.includes('EMAIL') && config.notifyClient) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: data.userId },
-        select: { email: true },
-      });
-      
-      if (user) {
-        await this.notifications.sendEmail(
-          user.email,
-          `GPS Alert: ${data.type}`,
-          this.generateEmailTemplate(data)
-        );
-      }
+    if (userRole === UserRole.CLIENT && alert.userId !== userId) {
+      throw new NotFoundException('Alert not found');
     }
 
     return alert;
   }
 
-  private async getVehicleInfo(vehicleId: string) {
-    return this.prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-      select: { name: true, plateNumber: true, user: { select: { name: true } } },
-    });
-  }
+  async markAsRead(id: string, userId: string, userRole: UserRole) {
+    const alert = await this.findOne(id, userId, userRole);
 
-  private generateEmailTemplate(data: any) {
-    return `
-      <h2>GPS Alert: ${data.type}</h2>
-      <p><strong>Message:</strong> ${data.message}</p>
-      <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-      ${data.latitude ? `<p><strong>Location:</strong> ${data.latitude}, ${data.longitude}</p>` : ''}
-      <hr>
-      <p>View details in your dashboard: <a href="${process.env.FRONTEND_URL}/alerts">Click here</a></p>
-    `;
-  }
-
-  async getUserAlerts(userId: string, unreadOnly = false) {
-    return this.prisma.alert.findMany({
-      where: {
-        userId,
-        ...(unreadOnly && { isRead: false }),
+    return this.prisma.alert.update({
+      where: { id },
+      data: {
+        isRead: true,
+        readAt: new Date(),
       },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
       include: {
-        vehicle: { select: { name: true, plateNumber: true } },
+        vehicle: {
+          select: {
+            id: true,
+            name: true,
+            plateNumber: true,
+          },
+        },
       },
     });
   }
 
-  async markAsRead(alertId: string, userId: string) {
-    return this.prisma.alert.updateMany({
-      where: { id: alertId, userId },
-      data: { isRead: true, readAt: new Date() },
+  async markAllAsRead(userId: string, userRole: UserRole) {
+    const where: any = userRole === UserRole.ADMIN ? {} : { userId };
+
+    await this.prisma.alert.updateMany({
+      where: {
+        ...where,
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
     });
+
+    return { message: 'All alerts marked as read' };
   }
 
-  async markAllRead(userId: string) {
-    return this.prisma.alert.updateMany({
-      where: { userId, isRead: false },
-      data: { isRead: true, readAt: new Date() },
+  async getUnreadCount(userId: string, userRole: UserRole) {
+    const where: any = userRole === UserRole.ADMIN ? {} : { userId };
+
+    const count = await this.prisma.alert.count({
+      where: {
+        ...where,
+        isRead: false,
+      },
+    });
+
+    return { count };
+  }
+
+  async remove(id: string, userId: string, userRole: UserRole) {
+    await this.findOne(id, userId, userRole);
+
+    await this.prisma.alert.delete({
+      where: { id },
+    });
+
+    return { message: 'Alert deleted successfully' };
+  }
+
+  async createAlert(data: {
+    userId: string;
+    vehicleId: string;
+    type: string;
+    message: string;
+    latitude?: number;
+    longitude?: number;
+    data?: string;
+  }) {
+    return this.prisma.alert.create({
+      data: {
+        userId: data.userId,
+        vehicleId: data.vehicleId,
+        type: data.type as any,
+        message: data.message,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        data: data.data,
+      },
     });
   }
 }

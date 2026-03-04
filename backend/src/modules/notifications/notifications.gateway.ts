@@ -11,7 +11,8 @@ import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
   },
   namespace: '/notifications',
 })
@@ -26,51 +27,91 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
 
   async handleConnection(client: Socket) {
     try {
-      const token = client.handshake.auth.token;
-      const payload = this.jwtService.verify(token);
+      const token = client.handshake.auth.token || client.handshake.query.token;
       
-      this.userSockets.set(payload.sub, client.id);
-      client.join(`user:${payload.sub}`);
-      
-      // Join role-based room
-      if (payload.role === 'ADMIN') {
-        client.join('admins');
+      if (!token) {
+        this.logger.warn('Connection attempt without token');
+        client.disconnect();
+        return;
       }
+
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+
+      this.userSockets.set(userId, client.id);
+      client.data.userId = userId;
       
-      this.logger.log(`Client connected: ${payload.email}`);
+      this.logger.log(`Client connected: ${userId}`);
+      
+      // Join user-specific room
+      client.join(`user:${userId}`);
+      
+      // Send connection confirmation
+      client.emit('connected', { userId, timestamp: new Date().toISOString() });
     } catch (error) {
+      this.logger.error('Connection error:', error.message);
       client.disconnect();
     }
   }
 
   handleDisconnect(client: Socket) {
-    for (const [userId, socketId] of this.userSockets.entries()) {
-      if (socketId === client.id) {
-        this.userSockets.delete(userId);
-        break;
+    const userId = client.data.userId;
+    if (userId) {
+      this.userSockets.delete(userId);
+      this.logger.log(`Client disconnected: ${userId}`);
+    }
+  }
+
+  @SubscribeMessage('subscribe')
+  handleSubscribe(client: Socket, payload: { channels: string[] }) {
+    const userId = client.data.userId;
+    
+    if (payload.channels) {
+      for (const channel of payload.channels) {
+        client.join(channel);
+        this.logger.log(`User ${userId} subscribed to ${channel}`);
       }
     }
-    this.logger.log(`Client disconnected: ${client.id}`);
+    
+    return { success: true, subscribed: payload.channels };
   }
 
-  @SubscribeMessage('subscribe_vehicle')
-  handleSubscribeVehicle(client: Socket, vehicleId: string) {
-    client.join(`vehicle:${vehicleId}`);
-    return { status: 'subscribed', vehicleId };
+  @SubscribeMessage('unsubscribe')
+  handleUnsubscribe(client: Socket, payload: { channels: string[] }) {
+    const userId = client.data.userId;
+    
+    if (payload.channels) {
+      for (const channel of payload.channels) {
+        client.leave(channel);
+        this.logger.log(`User ${userId} unsubscribed from ${channel}`);
+      }
+    }
+    
+    return { success: true, unsubscribed: payload.channels };
   }
 
-  // Send to specific user
+  // Method to send notification to specific user
   sendToUser(userId: string, event: string, data: any) {
     this.server.to(`user:${userId}`).emit(event, data);
   }
 
-  // Send to all admins
-  sendToAdmins(event: string, data: any) {
-    this.server.to('admins').emit(event, data);
+  // Method to send notification to all connected clients
+  broadcast(event: string, data: any) {
+    this.server.emit(event, data);
   }
 
-  // Broadcast vehicle update
-  broadcastVehicleUpdate(vehicleId: string, data: any) {
-    this.server.to(`vehicle:${vehicleId}`).emit('position_update', data);
+  // Method to send alert to user
+  sendAlert(userId: string, alert: any) {
+    this.sendToUser(userId, 'alert', alert);
+  }
+
+  // Method to send position update
+  sendPositionUpdate(userId: string, position: any) {
+    this.sendToUser(userId, 'position:update', position);
+  }
+
+  // Method to send geofence alert
+  sendGeofenceAlert(userId: string, data: any) {
+    this.sendToUser(userId, 'geofence:alert', data);
   }
 }

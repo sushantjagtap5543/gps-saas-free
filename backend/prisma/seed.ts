@@ -1,108 +1,133 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  // Create default alert configs
-  const alertTypes = [
-    { type: 'IGNITION_ON', speedLimit: null, offlineMinutes: null, batteryThreshold: null },
-    { type: 'IGNITION_OFF', speedLimit: null, offlineMinutes: null, batteryThreshold: null },
-    { type: 'OVERSPEED', speedLimit: 80, offlineMinutes: null, batteryThreshold: null },
-    { type: 'GEOFENCE_ENTER', speedLimit: null, offlineMinutes: null, batteryThreshold: null },
-    { type: 'GEOFENCE_EXIT', speedLimit: null, offlineMinutes: null, batteryThreshold: null },
-    { type: 'DEVICE_OFFLINE', speedLimit: null, offlineMinutes: 5, batteryThreshold: null },
-    { type: 'LOW_BATTERY', speedLimit: null, offlineMinutes: null, batteryThreshold: 20 },
-  ];
+  console.log('🌱 Starting database seed...');
 
-  for (const alert of alertTypes) {
-    await prisma.alertConfig.upsert({
-      where: { alertType: alert.type },
-      update: {},
-      create: {
-        alertType: alert.type,
-        isEnabled: true,
-        notifyAdmin: true,
-        notifyClient: true,
-        channels: ['WEBSOCKET', 'EMAIL'],
-        speedLimit: alert.speedLimit,
-        offlineMinutes: alert.offlineMinutes,
-        batteryThreshold: alert.batteryThreshold,
-      },
-    });
+  // Check if admin user already exists
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: 'admin@gps.com' },
+  });
+
+  if (existingAdmin) {
+    console.log('⚠️  Admin user already exists, skipping seed...');
+    return;
   }
 
   // Create admin user
   const adminPassword = await bcrypt.hash('admin123', 10);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@gps.com' },
-    update: {},
-    create: {
+  const admin = await prisma.user.create({
+    data: {
       email: 'admin@gps.com',
       password: adminPassword,
       name: 'System Administrator',
-      role: 'ADMIN',
-      maxVehicles: 9999,
-      maxGeofences: 9999,
+      role: UserRole.ADMIN,
+      isActive: true,
+      emailVerified: true,
+      maxVehicles: 1000,
+      maxGeofences: 1000,
     },
   });
+  console.log('✅ Created admin user:', admin.email);
 
-  // Create demo client
+  // Create demo client user
   const clientPassword = await bcrypt.hash('client123', 10);
-  const client = await prisma.user.upsert({
-    where: { email: 'client@demo.com' },
-    update: {},
-    create: {
+  const client = await prisma.user.create({
+    data: {
       email: 'client@demo.com',
       password: clientPassword,
       name: 'Demo Client',
-      role: 'CLIENT',
+      role: UserRole.CLIENT,
+      isActive: true,
+      emailVerified: true,
       maxVehicles: 5,
       maxGeofences: 10,
     },
   });
+  console.log('✅ Created demo client:', client.email);
 
-  // Create demo vehicles
-  await prisma.vehicle.createMany({
-    skipDuplicates: true,
-    data: [
-      {
-        userId: client.id,
-        name: 'Tata Ace',
-        plateNumber: 'MH01AB1234',
-        imei: '866771027612345',
-        protocol: 'gt06',
-        latitude: 19.0760,
-        longitude: 72.8777,
-        speed: 35,
-        heading: 45,
-        isActive: true,
-        lastPositionAt: new Date(),
-      },
-      {
-        userId: client.id,
-        name: 'Bolero Pickup',
-        plateNumber: 'MH02CD5678',
-        imei: '866771027612346',
-        protocol: 'gt06',
-        latitude: 19.0860,
-        longitude: 72.8877,
-        speed: 0,
-        heading: 120,
-        isActive: true,
-        lastPositionAt: new Date(Date.now() - 10 * 60000), // 10 mins ago
-      },
-    ],
+  // Create demo vehicles for client
+  const demoVehicles = [
+    {
+      name: 'Demo Car 1',
+      plateNumber: 'DEMO-001',
+      imei: '123456789012345',
+      deviceModel: 'GT06N',
+      deviceProtocol: 'GT06',
+      userId: client.id,
+    },
+    {
+      name: 'Demo Car 2',
+      plateNumber: 'DEMO-002',
+      imei: '123456789012346',
+      deviceModel: 'TK103B',
+      deviceProtocol: 'TK103',
+      userId: client.id,
+    },
+    {
+      name: 'Demo Truck',
+      plateNumber: 'DEMO-003',
+      imei: '123456789012347',
+      deviceModel: 'H02',
+      deviceProtocol: 'H02',
+      userId: client.id,
+    },
+  ];
+
+  for (const vehicleData of demoVehicles) {
+    const vehicle = await prisma.vehicle.create({
+      data: vehicleData,
+    });
+    console.log('✅ Created demo vehicle:', vehicle.name, '- IMEI:', vehicle.imei);
+  }
+
+  // Create notification settings for client
+  await prisma.notificationSetting.create({
+    data: {
+      userId: client.id,
+      emailEnabled: true,
+      pushEnabled: true,
+      webEnabled: true,
+      ignitionAlerts: true,
+      overspeedAlerts: true,
+      geofenceAlerts: true,
+      offlineAlerts: true,
+      lowBatteryAlerts: true,
+      speedLimit: 80,
+    },
   });
+  console.log('✅ Created notification settings for client');
 
-  console.log('✅ Database seeded successfully!');
-  console.log('   Admin: admin@gps.com / admin123');
-  console.log('   Client: client@demo.com / client123');
+  // Create system settings
+  const systemSettings = [
+    { key: 'app_name', value: 'GPS Free SaaS' },
+    { key: 'app_version', value: '1.0.0' },
+    { key: 'maintenance_mode', value: 'false' },
+    { key: 'allow_registration', value: 'true' },
+    { key: 'default_max_vehicles', value: '5' },
+    { key: 'default_max_geofences', value: '10' },
+    { key: 'position_history_days', value: '90' },
+    { key: 'alert_history_days', value: '30' },
+  ];
+
+  for (const setting of systemSettings) {
+    await prisma.systemSetting.create({
+      data: setting,
+    });
+  }
+  console.log('✅ Created system settings');
+
+  console.log('\n🎉 Database seed completed successfully!');
+  console.log('\n📋 Default Credentials:');
+  console.log('   Admin:    admin@gps.com / admin123');
+  console.log('   Client:   client@demo.com / client123');
 }
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('❌ Seed error:', e);
     process.exit(1);
   })
   .finally(async () => {

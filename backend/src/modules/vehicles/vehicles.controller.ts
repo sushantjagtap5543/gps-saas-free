@@ -1,111 +1,86 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  ParseISO8601Pipe,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { VehiclesService } from './vehicles.service';
-import { PrismaService } from '../../common/prisma.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { CreateVehicleDto, UpdateVehicleDto } from './dto/vehicle.dto';
 
 @ApiTags('Vehicles')
-@Controller('vehicles')
-@UseGuards(JwtAuthGuard)
+@Controller('api/vehicles')
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class VehiclesController {
-  constructor(
-    private vehiclesService: VehiclesService,
-    private prisma: PrismaService,
-  ) {}
+  constructor(private readonly vehiclesService: VehiclesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get my vehicles (or all for admin)' })
-  async getVehicles(@Request() req) {
-    if (req.user.role === 'ADMIN') {
-      return this.prisma.vehicle.findMany({
-        include: {
-          user: { select: { name: true, email: true } },
-          _count: { select: { positions: true } },
-        },
-      });
-    }
-    return this.vehiclesService.getUserVehicles(req.user.userId);
+  @ApiOperation({ summary: 'Get all vehicles' })
+  findAll(@Request() req) {
+    return this.vehiclesService.findAll(req.user.userId, req.user.role);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get vehicle details' })
-  async getVehicle(@Param('id') id: string, @Request() req) {
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id },
-      include: {
-        positions: {
-          orderBy: { recordedAt: 'desc' },
-          take: 1,
-        },
-        geofences: { include: { geofence: true } },
-      },
-    });
-
-    // Check ownership
-    if (req.user.role !== 'ADMIN' && vehicle.userId !== req.user.userId) {
-      throw new Error('Unauthorized');
-    }
-
-    return vehicle;
-  }
-
-  @Get(':id/history')
-  @ApiOperation({ summary: 'Get vehicle position history' })
-  async getHistory(
-    @Param('id') id: string,
-    @Query('hours') hours: string = '24',
-    @Request() req,
-  ) {
-    return this.vehiclesService.getHistory(id, parseInt(hours), req.user);
+  @ApiOperation({ summary: 'Get vehicle by ID' })
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.vehiclesService.findOne(id, req.user.userId, req.user.role);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create vehicle (Admin assigns, Client creates for self)' })
-  async createVehicle(@Body() data: any, @Request() req) {
-    if (req.user.role === 'CLIENT') {
-      // Check limit
-      const count = await this.prisma.vehicle.count({
-        where: { userId: req.user.userId },
-      });
-      const user = await this.prisma.user.findUnique({
-        where: { id: req.user.userId },
-        select: { maxVehicles: true },
-      });
-      
-      if (count >= user.maxVehicles) {
-        throw new Error('Vehicle limit reached');
-      }
-      
-      data.userId = req.user.userId;
-    }
-    
-    return this.vehiclesService.create(data);
+  @ApiOperation({ summary: 'Create new vehicle' })
+  create(@Body() createVehicleDto: CreateVehicleDto, @Request() req) {
+    return this.vehiclesService.create(createVehicleDto, req.user.userId, req.user.role);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Update vehicle' })
-  async updateVehicle(@Param('id') id: string, @Body() data: any, @Request() req) {
-    // Verify ownership
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id },
-      select: { userId: true },
-    });
-    
-    if (req.user.role !== 'ADMIN' && vehicle.userId !== req.user.userId) {
-      throw new Error('Unauthorized');
-    }
-    
-    return this.vehiclesService.update(id, data);
+  update(
+    @Param('id') id: string,
+    @Body() updateVehicleDto: UpdateVehicleDto,
+    @Request() req,
+  ) {
+    return this.vehiclesService.update(id, updateVehicleDto, req.user.userId, req.user.role);
   }
 
   @Delete(':id')
-  @Roles('ADMIN')
-  @UseGuards(RolesGuard)
-  @ApiOperation({ summary: 'Delete vehicle (Admin only)' })
-  async deleteVehicle(@Param('id') id: string) {
-    return this.prisma.vehicle.delete({ where: { id } });
+  @ApiOperation({ summary: 'Delete vehicle' })
+  remove(@Param('id') id: string, @Request() req) {
+    return this.vehiclesService.remove(id, req.user.userId, req.user.role);
+  }
+
+  @Get(':id/position/latest')
+  @ApiOperation({ summary: 'Get latest position for vehicle' })
+  getLatestPosition(@Param('id') id: string, @Request() req) {
+    return this.vehiclesService.getLatestPosition(id, req.user.userId, req.user.role);
+  }
+
+  @Get(':id/position/history')
+  @ApiOperation({ summary: 'Get position history for vehicle' })
+  @ApiQuery({ name: 'startDate', required: false, type: Date })
+  @ApiQuery({ name: 'endDate', required: false, type: Date })
+  getPositionHistory(
+    @Param('id') id: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Request() req,
+  ) {
+    return this.vehiclesService.getPositionHistory(
+      id,
+      req.user.userId,
+      req.user.role,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+    );
   }
 }

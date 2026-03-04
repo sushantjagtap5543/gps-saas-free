@@ -14,7 +14,10 @@ import { PrismaService } from './common/prisma.service';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ 
+      isGlobal: true,
+      envFilePath: ['.env', '../infra/.env'],
+    }),
     ScheduleModule.forRoot(),
     AuthModule,
     UsersModule,
@@ -27,5 +30,6 @@ import { PrismaService } from './common/prisma.service';
     AdminModule,
   ],
   providers: [PrismaService],
+  exports: [PrismaService],
 })
 export class AppModule {}
