@@ -28,10 +28,7 @@ export class VehiclesController {
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
     @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
   ) {
-    return this.vehiclesService.findAll(req.user.userId, req.user.role, {
-      search,
-      status,
-    });
+    return this.vehiclesService.findAll(req.user.userId, req.user.role);
   }
 
   @Get(':id')
