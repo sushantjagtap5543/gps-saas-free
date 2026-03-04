@@ -13,7 +13,7 @@ export class VehiclesController {
 
   @Post()
   create(@Body() createVehicleDto: CreateVehicleDto, @Request() req) {
-    return this.vehiclesService.create(createVehicleDto, req.user.userId);
+    return this.vehiclesService.create(createVehicleDto, req.user.userId, req.user.role);
   }
 
   @Get()
@@ -38,16 +38,16 @@ export class VehiclesController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req) {
-    return this.vehiclesService.findOne(id, req.user.userId);
+    return this.vehiclesService.findOne(id, req.user.userId, req.user.role);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateVehicleDto: UpdateVehicleDto, @Request() req) {
-    return this.vehiclesService.update(id, updateVehicleDto, req.user.userId);
+    return this.vehiclesService.update(id, updateVehicleDto, req.user.userId, req.user.role);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req) {
-    return this.vehiclesService.remove(id, req.user.userId);
+    return this.vehiclesService.remove(id, req.user.userId, req.user.role);
   }
 }

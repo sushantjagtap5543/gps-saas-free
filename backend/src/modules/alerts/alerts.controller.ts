@@ -29,16 +29,16 @@ export class AlertsController {
 
   @Get('unread-count')
   getUnreadCount(@Request() req) {
-    return this.alertsService.getUnreadCount(req.user.userId);
+    return this.alertsService.getUnreadCount(req.user.userId, req.user.role);
   }
 
   @Patch(':id/read')
   markAsRead(@Param('id') id: string, @Request() req) {
-    return this.alertsService.markAsRead(id, req.user.userId);
+    return this.alertsService.markAsRead(id, req.user.userId, req.user.role);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req) {
-    return this.alertsService.remove(id, req.user.userId);
+    return this.alertsService.remove(id, req.user.userId, req.user.role);
   }
 }

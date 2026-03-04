@@ -1,185 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
-import { UserRole } from '@prisma/client';
-import { startOfDay, endOfDay, subDays, format } from 'date-fns';
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  async getTripHistory(
-    userId: string,
-    userRole: UserRole,
+  async getDistanceReport(
     vehicleId: string,
-    startDate?: Date,
-    endDate?: Date,
-  ) {
-    // Verify vehicle access
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-      include: { user: true },
-    });
-
-    if (!vehicle) {
-      throw new NotFoundException('Vehicle not found');
-    }
-
-    if (userRole === UserRole.CLIENT && vehicle.userId !== userId) {
-      throw new NotFoundException('Vehicle not found');
-    }
-
-    const where: any = { vehicleId };
-    
-    if (startDate || endDate) {
-      where.timestamp = {};
-      if (startDate) where.timestamp.gte = startOfDay(startDate);
-      if (endDate) where.timestamp.lte = endOfDay(endDate);
-    }
-
-    const positions = await this.prisma.position.findMany({
-      where,
-      orderBy: { timestamp: 'asc' },
-      select: {
-        id: true,
-        latitude: true,
-        longitude: true,
-        speed: true,
-        heading: true,
-        altitude: true,
-        accuracy: true,
-        ignition: true,
-        odometer: true,
-        timestamp: true,
-      },
-    });
-
-    // Calculate trip statistics
-    const stats = this.calculateTripStats(positions);
-
-    return {
-      vehicle: {
-        id: vehicle.id,
-        name: vehicle.name,
-        plateNumber: vehicle.plateNumber,
-      },
-      period: {
-        start: startDate ? startOfDay(startDate) : null,
-        end: endDate ? endOfDay(endDate) : null,
-      },
-      totalPositions: positions.length,
-      statistics: stats,
-      positions,
-    };
-  }
-
-  async getDailySummary(
+    startDate: Date,
+    endDate: Date,
     userId: string,
-    userRole: UserRole,
-    date: Date,
   ) {
-    const dayStart = startOfDay(date);
-    const dayEnd = endOfDay(date);
-
-    const where: any = {
-      timestamp: {
-        gte: dayStart,
-        lte: dayEnd,
-      },
-    };
-
-    if (userRole === UserRole.CLIENT) {
-      where.vehicle = { userId };
-    }
-
-    const positions = await this.prisma.position.findMany({
-      where,
-      include: {
-        vehicle: {
-          select: {
-            id: true,
-            name: true,
-            plateNumber: true,
-            userId: true,
-          },
-        },
-      },
-    });
-
-    // Group by vehicle
-    const vehicleStats = new Map();
-    
-    for (const pos of positions) {
-      const vid = pos.vehicleId;
-      if (!vehicleStats.has(vid)) {
-        vehicleStats.set(vid, {
-          vehicle: pos.vehicle,
-          positions: [],
-          maxSpeed: 0,
-          totalDistance: 0,
-          startOdometer: null,
-          endOdometer: null,
-          ignitionOnCount: 0,
-          ignitionOffCount: 0,
-        });
-      }
-      
-      const stats = vehicleStats.get(vid);
-      stats.positions.push(pos);
-      stats.maxSpeed = Math.max(stats.maxSpeed, pos.speed);
-      
-      if (pos.ignition) {
-        stats.ignitionOnCount++;
-      } else {
-        stats.ignitionOffCount++;
-      }
-      
-      if (stats.startOdometer === null || pos.odometer < stats.startOdometer) {
-        stats.startOdometer = pos.odometer;
-      }
-      if (stats.endOdometer === null || pos.odometer > stats.endOdometer) {
-        stats.endOdometer = pos.odometer;
-      }
-    }
-
-    // Calculate distances
-    for (const stats of vehicleStats.values()) {
-      if (stats.startOdometer !== null && stats.endOdometer !== null) {
-        stats.totalDistance = stats.endOdometer - stats.startOdometer;
-      }
-      delete stats.positions; // Remove raw positions from summary
-    }
-
-    return {
-      date: format(date, 'yyyy-MM-dd'),
-      totalVehicles: vehicleStats.size,
-      totalPositions: positions.length,
-      vehicles: Array.from(vehicleStats.values()),
-    };
-  }
-
-  async getVehicleStats(
-    userId: string,
-    userRole: UserRole,
-    vehicleId: string,
-    days: number = 7,
-  ) {
-    // Verify vehicle access
-    const vehicle = await this.prisma.vehicle.findUnique({
-      where: { id: vehicleId },
-    });
-
-    if (!vehicle) {
-      throw new NotFoundException('Vehicle not found');
-    }
-
-    if (userRole === UserRole.CLIENT && vehicle.userId !== userId) {
-      throw new NotFoundException('Vehicle not found');
-    }
-
-    const endDate = new Date();
-    const startDate = subDays(endDate, days);
-
-    const positions = await this.prisma.position.findMany({
+    const locations = await this.prisma.location.findMany({
       where: {
         vehicleId,
         timestamp: {
@@ -190,180 +22,170 @@ export class ReportsService {
       orderBy: { timestamp: 'asc' },
     });
 
-    // Group by day
-    const dailyStats = new Map();
-    
-    for (const pos of positions) {
-      const day = format(pos.timestamp, 'yyyy-MM-dd');
-      if (!dailyStats.has(day)) {
-        dailyStats.set(day, {
-          date: day,
-          positionCount: 0,
-          maxSpeed: 0,
-          avgSpeed: 0,
-          speedSum: 0,
-          startOdometer: null,
-          endOdometer: null,
-          ignitionOnTime: 0,
-          lastIgnitionOn: null,
-        });
-      }
-      
-      const stats = dailyStats.get(day);
-      stats.positionCount++;
-      stats.speedSum += pos.speed;
-      stats.avgSpeed = stats.speedSum / stats.positionCount;
-      stats.maxSpeed = Math.max(stats.maxSpeed, pos.speed);
-      
-      if (stats.startOdometer === null || pos.odometer < stats.startOdometer) {
-        stats.startOdometer = pos.odometer;
-      }
-      if (stats.endOdometer === null || pos.odometer > stats.endOdometer) {
-        stats.endOdometer = pos.odometer;
-      }
-      
-      // Track ignition time
-      if (pos.ignition) {
-        if (stats.lastIgnitionOn === null) {
-          stats.lastIgnitionOn = pos.timestamp;
-        }
-      } else if (stats.lastIgnitionOn !== null) {
-        const duration = new Date(pos.timestamp).getTime() - new Date(stats.lastIgnitionOn).getTime();
-        stats.ignitionOnTime += duration;
-        stats.lastIgnitionOn = null;
-      }
-    }
-
-    // Clean up and format
-    for (const stats of dailyStats.values()) {
-      delete stats.speedSum;
-      delete stats.lastIgnitionOn;
-      stats.distance = stats.endOdometer !== null && stats.startOdometer !== null
-        ? stats.endOdometer - stats.startOdometer
-        : 0;
-      stats.ignitionOnHours = Math.round(stats.ignitionOnTime / (1000 * 60 * 60) * 100) / 100;
+    let totalDistance = 0;
+    for (let i = 1; i < locations.length; i++) {
+      const prev = locations[i - 1];
+      const curr = locations[i];
+      const distance = this.calculateDistance(
+        prev.latitude,
+        prev.longitude,
+        curr.latitude,
+        curr.longitude,
+      );
+      totalDistance += distance;
     }
 
     return {
-      vehicle: {
-        id: vehicle.id,
-        name: vehicle.name,
-        plateNumber: vehicle.plateNumber,
-      },
-      period: {
-        days,
-        start: startDate,
-        end: endDate,
-      },
-      dailyStats: Array.from(dailyStats.values()),
+      vehicleId,
+      startDate,
+      endDate,
+      totalDistance: Math.round(totalDistance * 100) / 100,
+      unit: 'km',
+      locations: locations.length,
     };
   }
 
-  async getFleetOverview(userId: string, userRole: UserRole) {
-    const vehicleWhere = userRole === UserRole.CLIENT ? { userId } : {};
-
-    const [
-      totalVehicles,
-      activeVehicles,
-      totalPositions,
-      todayPositions,
-      alerts,
-    ] = await Promise.all([
-      this.prisma.vehicle.count({ where: vehicleWhere }),
-      this.prisma.vehicle.count({ 
-        where: { 
-          ...vehicleWhere,
-          isActive: true,
-          lastPosition: { not: null },
-        },
-      }),
-      this.prisma.position.count({
-        where: {
-          vehicle: vehicleWhere,
-        },
-      }),
-      this.prisma.position.count({
-        where: {
-          vehicle: vehicleWhere,
-          timestamp: {
-            gte: startOfDay(new Date()),
-          },
-        },
-      }),
-      this.prisma.alert.count({
-        where: {
-          vehicle: vehicleWhere,
-          createdAt: {
-            gte: subDays(new Date(), 7),
-          },
-        },
-      }),
-    ]);
-
-    // Get recent alerts by type
-    const alertsByType = await this.prisma.alert.groupBy({
-      by: ['type'],
+  async getStopsReport(
+    vehicleId: string,
+    startDate: Date,
+    endDate: Date,
+    minDuration: number,
+    userId: string,
+  ) {
+    const locations = await this.prisma.location.findMany({
       where: {
-        vehicle: vehicleWhere,
-        createdAt: {
-          gte: subDays(new Date(), 7),
+        vehicleId,
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
         },
       },
-      _count: {
-        type: true,
-      },
+      orderBy: { timestamp: 'asc' },
     });
 
+    const stops = [];
+    let currentStop = null;
+
+    for (let i = 0; i < locations.length; i++) {
+      const loc = locations[i];
+      
+      if (loc.speed < 5) {
+        if (!currentStop) {
+          currentStop = {
+            startTime: loc.timestamp,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            address: loc.address,
+          };
+        }
+      } else if (currentStop) {
+        const duration = (loc.timestamp.getTime() - currentStop.startTime.getTime()) / 1000 / 60;
+        if (duration >= minDuration) {
+          stops.push({
+            ...currentStop,
+            endTime: locations[i - 1]?.timestamp,
+            duration: Math.round(duration),
+          });
+        }
+        currentStop = null;
+      }
+    }
+
     return {
-      summary: {
-        totalVehicles,
-        activeVehicles,
-        inactiveVehicles: totalVehicles - activeVehicles,
-        totalPositions,
-        todayPositions,
-        weeklyAlerts: alerts,
-      },
-      alertsByType: alertsByType.map(a => ({
-        type: a.type,
-        count: a._count.type,
-      })),
+      vehicleId,
+      startDate,
+      endDate,
+      stops,
+      totalStops: stops.length,
     };
   }
 
-  private calculateTripStats(positions: any[]) {
-    if (positions.length === 0) {
-      return {
-        totalDistance: 0,
-        maxSpeed: 0,
-        avgSpeed: 0,
-        duration: 0,
-        startTime: null,
-        endTime: null,
-      };
+  async getTripsReport(
+    vehicleId: string,
+    startDate: Date,
+    endDate: Date,
+    userId: string,
+  ) {
+    const locations = await this.prisma.location.findMany({
+      where: {
+        vehicleId,
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    const trips = [];
+    let currentTrip = null;
+
+    for (let i = 0; i < locations.length; i++) {
+      const loc = locations[i];
+      
+      if (loc.speed >= 5) {
+        if (!currentTrip) {
+          currentTrip = {
+            startTime: loc.timestamp,
+            startLocation: {
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              address: loc.address,
+            },
+            distance: 0,
+            maxSpeed: loc.speed,
+          };
+        } else {
+          const prev = locations[i - 1];
+          const distance = this.calculateDistance(
+            prev.latitude,
+            prev.longitude,
+            loc.latitude,
+            loc.longitude,
+          );
+          currentTrip.distance += distance;
+          currentTrip.maxSpeed = Math.max(currentTrip.maxSpeed, loc.speed);
+        }
+      } else if (currentTrip) {
+        const duration = (loc.timestamp.getTime() - currentTrip.startTime.getTime()) / 1000 / 60;
+        trips.push({
+          ...currentTrip,
+          endTime: locations[i - 1]?.timestamp,
+          endLocation: {
+            latitude: locations[i - 1]?.latitude,
+            longitude: locations[i - 1]?.longitude,
+            address: locations[i - 1]?.address,
+          },
+          duration: Math.round(duration),
+          distance: Math.round(currentTrip.distance * 100) / 100,
+        });
+        currentTrip = null;
+      }
     }
 
-    const speeds = positions.map(p => p.speed);
-    const maxSpeed = Math.max(...speeds);
-    const avgSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-
-    const startTime = positions[0].timestamp;
-    const endTime = positions[positions.length - 1].timestamp;
-    const duration = new Date(endTime).getTime() - new Date(startTime).getTime();
-
-    const startOdometer = positions[0].odometer;
-    const endOdometer = positions[positions.length - 1].odometer;
-    const totalDistance = endOdometer !== null && startOdometer !== null
-      ? endOdometer - startOdometer
-      : 0;
-
     return {
-      totalDistance,
-      maxSpeed,
-      avgSpeed: Math.round(avgSpeed * 100) / 100,
-      duration,
-      durationHours: Math.round(duration / (1000 * 60 * 60) * 100) / 100,
-      startTime,
-      endTime,
+      vehicleId,
+      startDate,
+      endDate,
+      trips,
+      totalTrips: trips.length,
+      totalDistance: trips.reduce((sum, trip) => sum + trip.distance, 0),
     };
+  }
+
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Earth radius in km
+    const dLat = this.toRad(lat2 - lat1);
+    const dLon = this.toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private toRad(degrees: number): number {
+    return degrees * (Math.PI / 180);
   }
 }

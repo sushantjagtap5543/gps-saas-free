@@ -15,35 +15,35 @@ export class UsersController {
 
   @Post()
   @Roles('ADMIN')
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  create(@Body() createUserDto: CreateUserDto, @Request() req) {
+    return this.usersService.create(createUserDto, req.user.userId);
   }
 
   @Get()
   @Roles('ADMIN')
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Request() req) {
+    return this.usersService.findAll(req.user.userId, req.user.role);
   }
 
   @Get('profile')
   getProfile(@Request() req) {
-    return this.usersService.findOne(req.user.userId);
+    return this.usersService.findOne(req.user.userId, req.user.userId, req.user.role);
   }
 
   @Get(':id')
   @Roles('ADMIN')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.usersService.findOne(id, req.user.userId, req.user.role);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @Request() req) {
-    return this.usersService.update(id, updateUserDto, req.user.userId);
+    return this.usersService.update(id, updateUserDto, req.user.userId, req.user.role);
   }
 
   @Delete(':id')
   @Roles('ADMIN')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  remove(@Param('id') id: string, @Request() req) {
+    return this.usersService.remove(id, req.user.userId, req.user.role);
   }
 }
