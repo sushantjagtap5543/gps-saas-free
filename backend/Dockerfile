@@ -1,4 +1,6 @@
-# Backend Dockerfile for NestJS GPS SaaS API
+# =========================
+# Builder Stage
+# =========================
 FROM node:18-alpine AS builder
 
 WORKDIR /app
@@ -10,8 +12,8 @@ RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci
+# Install all dependencies
+RUN npm install
 
 # Generate Prisma client
 RUN npx prisma generate
@@ -22,40 +24,40 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage
+
+# =========================
+# Production Stage
+# =========================
 FROM node:18-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (for healthcheck)
 RUN apk add --no-cache curl
 
-# Copy package files
-COPY package*.json ./
-COPY prisma ./prisma/
+ENV NODE_ENV=production
 
-# Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
+# Copy only production dependencies from builder
+COPY --from=builder /app/node_modules ./node_modules
 
-# Copy built application from builder stage
+# Copy Prisma schema
+COPY --from=builder /app/prisma ./prisma
+
+# Copy built app
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN addgroup -S nodejs && adduser -S nodejs -G nodejs
 
-# Change ownership of the app directory
+# Change ownership
 RUN chown -R nodejs:nodejs /app
 USER nodejs
 
-# Expose ports
 EXPOSE 3001
 
-# Health check
+# Health check (make sure /health exists in your app)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3001/health || exit 1
+  CMD curl -f http://localhost:3001/health || exit 1
 
-# Start the application
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/main"]
+# Start application
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

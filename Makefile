@@ -1,115 +1,219 @@
-.PHONY: help install dev build deploy logs backup clean stop restart migrate seed status
+# ============================================================================
+# GPS-FREE-SAAS Makefile
+# ============================================================================
+# Quick commands for managing the GPS tracking system
+# ============================================================================
 
-# Colors for output
-BLUE=\033[0;34m
-GREEN=\033[0;32m
-YELLOW=\033[1;33m
-NC=\033[0m # No Color
+.PHONY: help deploy start stop restart logs status clean backup diagnose update
 
-help:
-	@echo "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
-	@echo "${BLUE}║           GPS-Free-SaaS Make Commands                    ║${NC}"
-	@echo "${BLUE}╠══════════════════════════════════════════════════════════╣${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make install${NC}    - Install all dependencies            ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make dev${NC}        - Start development environment        ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make build${NC}      - Build production images            ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make deploy${NC}     - Deploy to production               ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make stop${NC}       - Stop all services                  ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make restart${NC}    - Restart all services               ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make logs${NC}       - View logs                          ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make status${NC}     - Check service status               ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make backup${NC}     - Create database backup             ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make migrate${NC}    - Run database migrations            ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make seed${NC}       - Seed database with default data    ${BLUE}║${NC}"
-	@echo "${BLUE}║${NC}  ${GREEN}make clean${NC}      - Clean up containers and volumes    ${BLUE}║${NC}"
-	@echo "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
+# Default target
+.DEFAULT_GOAL := help
 
-install:
-	@echo "${YELLOW}Installing backend dependencies...${NC}"
-	cd backend && npm install
-	@echo "${YELLOW}Installing frontend dependencies...${NC}"
-	cd frontend && npm install
-	@echo "${YELLOW}Installing gps-server dependencies...${NC}"
-	cd gps-server && npm install
-	@echo "${GREEN}✅ All dependencies installed!${NC}"
+# Colors
+BLUE := \033[0;34m
+GREEN := \033[0;32m
+YELLOW := \033[1;33m
+RED := \033[0;31m
+NC := \033[0m
 
-dev:
-	@echo "${YELLOW}Starting development environment...${NC}"
-	docker-compose up -d postgres redis
-	cd backend && npm run start:dev &
-	cd frontend && npm run dev &
-	cd gps-server && npm run start:dev &
-	@echo "${GREEN}✅ Development servers started!${NC}"
-	@echo "Frontend: http://localhost:3000"
-	@echo "Backend: http://localhost:3001"
-	@echo "GPS Server: ports 5000, 5001, 5002"
+help: ## Show this help message
+	@echo "$(BLUE)═══════════════════════════════════════════════════════$(NC)"
+	@echo "$(BLUE)  GPS-FREE-SAAS Management Commands$(NC)"
+	@echo "$(BLUE)═══════════════════════════════════════════════════════$(NC)"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "$(GREEN)%-15s$(NC) %s\n", $$1, $$2}'
+	@echo ""
 
-build:
-	@echo "${YELLOW}Building production images...${NC}"
-	docker-compose -f docker-compose.prod.yml build
-	@echo "${GREEN}✅ Production images built!${NC}"
+deploy: ## Complete deployment (run once)
+	@echo "$(BLUE)Starting deployment...$(NC)"
+	@chmod +x deploy.sh
+	@./deploy.sh
 
-deploy:
-	@echo "${YELLOW}Deploying to production...${NC}"
-	docker-compose -f docker-compose.prod.yml up -d
-	@echo "${GREEN}✅ Production deployment complete!${NC}"
-	@echo "Access your application at: http://localhost"
+start: ## Start all services
+	@echo "$(BLUE)Starting services...$(NC)"
+	@docker compose -f docker-compose.prod.yml up -d
+	@echo "$(GREEN)Services started!$(NC)"
+	@make status
 
-stop:
-	@echo "${YELLOW}Stopping all services...${NC}"
-	docker-compose -f docker-compose.prod.yml down
-	@echo "${GREEN}✅ All services stopped!${NC}"
+stop: ## Stop all services
+	@echo "$(YELLOW)Stopping services...$(NC)"
+	@docker compose -f docker-compose.prod.yml down
+	@echo "$(GREEN)Services stopped$(NC)"
 
-restart: stop deploy
+restart: ## Restart all services
+	@echo "$(YELLOW)Restarting services...$(NC)"
+	@docker compose -f docker-compose.prod.yml restart
+	@echo "$(GREEN)Services restarted$(NC)"
 
-logs:
-	@echo "${YELLOW}Showing logs (Ctrl+C to exit)...${NC}"
-	docker-compose -f docker-compose.prod.yml logs -f
+logs: ## View logs (all services)
+	@docker compose -f docker-compose.prod.yml logs -f
 
-status:
-	@echo "${YELLOW}Service Status:${NC}"
-	docker-compose -f docker-compose.prod.yml ps
+logs-backend: ## View backend logs only
+	@docker compose -f docker-compose.prod.yml logs -f backend
 
-backup:
-	@echo "${YELLOW}Creating database backup...${NC}"
+logs-frontend: ## View frontend logs only
+	@docker compose -f docker-compose.prod.yml logs -f web
+
+logs-gps: ## View GPS server logs only
+	@docker compose -f docker-compose.prod.yml logs -f gps-server
+
+logs-db: ## View database logs only
+	@docker compose -f docker-compose.prod.yml logs -f postgres
+
+status: ## Check status of all services
+	@echo "$(BLUE)Service Status:$(NC)"
+	@docker compose -f docker-compose.prod.yml ps
+	@echo ""
+	@echo "$(BLUE)Health Checks:$(NC)"
+	@curl -sf http://localhost:3001/health && echo "$(GREEN)✓ Backend API: OK$(NC)" || echo "$(RED)✗ Backend API: FAIL$(NC)"
+	@curl -sI http://localhost:3000 > /dev/null && echo "$(GREEN)✓ Frontend: OK$(NC)" || echo "$(RED)✗ Frontend: FAIL$(NC)"
+	@docker exec gps_postgres pg_isready -U gpsadmin > /dev/null 2>&1 && echo "$(GREEN)✓ Database: OK$(NC)" || echo "$(RED)✗ Database: FAIL$(NC)"
+	@docker exec gps_redis redis-cli ping > /dev/null 2>&1 && echo "$(GREEN)✓ Redis: OK$(NC)" || echo "$(RED)✗ Redis: FAIL$(NC)"
+
+health: ## Run health checks
+	@echo "$(BLUE)Running health checks...$(NC)"
+	@echo ""
+	@echo "Backend API:"
+	@curl -sf http://localhost:3001/health | jq . || echo "$(RED)Failed$(NC)"
+	@echo ""
+	@echo "Database:"
+	@docker exec gps_postgres pg_isready -U gpsadmin || echo "$(RED)Failed$(NC)"
+	@echo ""
+	@echo "Redis:"
+	@docker exec gps_redis redis-cli ping || echo "$(RED)Failed$(NC)"
+
+build: ## Rebuild all services
+	@echo "$(BLUE)Rebuilding services...$(NC)"
+	@docker compose -f docker-compose.prod.yml build --no-cache
+	@echo "$(GREEN)Build complete$(NC)"
+
+rebuild: build restart ## Rebuild and restart
+
+clean: ## Stop and remove all containers, volumes
+	@echo "$(YELLOW)Cleaning up...$(NC)"
+	@docker compose -f docker-compose.prod.yml down -v
+	@echo "$(GREEN)Cleanup complete$(NC)"
+
+clean-all: clean ## Remove everything including images
+	@echo "$(YELLOW)Removing all Docker resources...$(NC)"
+	@docker system prune -a -f
+	@echo "$(GREEN)Complete cleanup done$(NC)"
+
+backup: ## Backup database
+	@echo "$(BLUE)Creating database backup...$(NC)"
 	@mkdir -p backups
-	docker-compose -f docker-compose.prod.yml exec -T postgres pg_dump -U gpsadmin gpstrack > backups/backup_$(shell date +%Y%m%d_%H%M%S).sql
-	@echo "${GREEN}✅ Backup created in backups/ folder!${NC}"
+	@docker exec gps_postgres pg_dump -U gpsadmin gpstrack > backups/backup_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "$(GREEN)Backup created in backups/ directory$(NC)"
 
-migrate:
-	@echo "${YELLOW}Running database migrations...${NC}"
-	docker-compose -f docker-compose.prod.yml exec backend npx prisma migrate deploy
-	@echo "${GREEN}✅ Migrations complete!${NC}"
+restore: ## Restore database (usage: make restore FILE=backup.sql)
+	@if [ -z "$(FILE)" ]; then \
+		echo "$(RED)Error: Please specify FILE=path/to/backup.sql$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Restoring database from $(FILE)...$(NC)"
+	@cat $(FILE) | docker exec -i gps_postgres psql -U gpsadmin gpstrack
+	@echo "$(GREEN)Database restored$(NC)"
 
-seed:
-	@echo "${YELLOW}Seeding database...${NC}"
-	docker-compose -f docker-compose.prod.yml exec backend npx prisma db seed
-	@echo "${GREEN}✅ Database seeded!${NC}"
+shell-backend: ## Open shell in backend container
+	@docker exec -it gps_backend sh
 
-shell-backend:
-	docker-compose -f docker-compose.prod.yml exec backend sh
+shell-db: ## Open PostgreSQL shell
+	@docker exec -it gps_postgres psql -U gpsadmin -d gpstrack
 
-shell-frontend:
-	docker-compose -f docker-compose.prod.yml exec web sh
+shell-redis: ## Open Redis CLI
+	@docker exec -it gps_redis redis-cli
 
-shell-gps:
-	docker-compose -f docker-compose.prod.yml exec gps-server sh
+diagnose: ## Run diagnostic script
+	@echo "$(BLUE)Running diagnostics...$(NC)"
+	@chmod +x diagnose.sh
+	@./diagnose.sh
 
-clean:
-	@echo "${YELLOW}Cleaning up containers and volumes...${NC}"
-	docker-compose -f docker-compose.prod.yml down -v
-	docker system prune -f
-	@echo "${GREEN}✅ Cleanup complete!${NC}"
+update: ## Pull latest images and restart
+	@echo "$(BLUE)Updating...$(NC)"
+	@docker compose -f docker-compose.prod.yml pull
+	@docker compose -f docker-compose.prod.yml up -d
+	@echo "$(GREEN)Update complete$(NC)"
 
-update:
-	@echo "${YELLOW}Updating application...${NC}"
-	git pull
-	docker-compose -f docker-compose.prod.yml build
-	docker-compose -f docker-compose.prod.yml up -d
-	@echo "${GREEN}✅ Update complete!${NC}"
+env-check: ## Validate environment configuration
+	@echo "$(BLUE)Checking environment configuration...$(NC)"
+	@if [ ! -f .env ]; then \
+		echo "$(RED)✗ .env file not found$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)✓ .env file exists$(NC)"
+	@grep -q "DB_PASSWORD=" .env && echo "$(GREEN)✓ DB_PASSWORD set$(NC)" || echo "$(RED)✗ DB_PASSWORD missing$(NC)"
+	@grep -q "JWT_SECRET=" .env && echo "$(GREEN)✓ JWT_SECRET set$(NC)" || echo "$(RED)✗ JWT_SECRET missing$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Note: This only checks if variables exist, not their values$(NC)"
 
-health-check:
-	@echo "${YELLOW}Checking service health...${NC}"
-	@curl -s http://localhost/health || echo "Nginx: DOWN"
-	@curl -s http://localhost:3001/health || echo "Backend: DOWN"
-	@echo "${GREEN}✅ Health check complete!${NC}"
+migrate: ## Run database migrations
+	@echo "$(BLUE)Running migrations...$(NC)"
+	@docker exec gps_backend npx prisma migrate deploy
+	@echo "$(GREEN)Migrations complete$(NC)"
+
+seed: ## Seed database with initial data
+	@echo "$(BLUE)Seeding database...$(NC)"
+	@docker exec gps_backend npx prisma db seed
+	@echo "$(GREEN)Database seeded$(NC)"
+
+stats: ## Show Docker resource usage
+	@echo "$(BLUE)Resource Usage:$(NC)"
+	@docker stats --no-stream
+
+disk: ## Show disk usage
+	@echo "$(BLUE)Disk Usage:$(NC)"
+	@df -h
+	@echo ""
+	@echo "$(BLUE)Docker Disk Usage:$(NC)"
+	@docker system df
+
+ports: ## Show open ports
+	@echo "$(BLUE)Listening Ports:$(NC)"
+	@sudo netstat -tlnp | grep -E '(3000|3001|5000|5001|5002|5432|6379)' || echo "No relevant ports found"
+
+test-api: ## Test API endpoint
+	@echo "$(BLUE)Testing API...$(NC)"
+	@curl -sf http://localhost:3001/health | jq .
+	@echo ""
+	@echo "$(GREEN)API is responding$(NC)"
+
+test-gps: ## Test GPS server connectivity
+	@echo "$(BLUE)Testing GPS ports...$(NC)"
+	@for port in 5000 5001 5002; do \
+		timeout 1 bash -c "echo > /dev/tcp/localhost/$$port" 2>/dev/null && \
+		echo "$(GREEN)✓ Port $$port: Open$(NC)" || \
+		echo "$(RED)✗ Port $$port: Closed$(NC)"; \
+	done
+
+dev-logs: ## Follow all logs with timestamps
+	@docker compose -f docker-compose.prod.yml logs -f --timestamps
+
+quick-deploy: ## Quick deploy (skip checks)
+	@docker compose -f docker-compose.prod.yml up -d --build
+
+fix-permissions: ## Fix file permissions
+	@echo "$(BLUE)Fixing permissions...$(NC)"
+	@chmod 755 deploy.sh diagnose.sh
+	@chmod 644 docker-compose.prod.yml .env
+	@chmod 755 backups logs
+	@echo "$(GREEN)Permissions fixed$(NC)"
+
+version: ## Show version information
+	@echo "$(BLUE)GPS-FREE-SAAS Version Info:$(NC)"
+	@echo "Docker: $$(docker --version)"
+	@echo "Docker Compose: $$(docker compose version)"
+	@echo "Docker API: $$(docker version --format '{{.Client.APIVersion}}')"
+
+# Development helpers
+dev-rebuild-backend: ## Rebuild only backend
+	@docker compose -f docker-compose.prod.yml up -d --build backend
+
+dev-rebuild-frontend: ## Rebuild only frontend
+	@docker compose -f docker-compose.prod.yml up -d --build web
+
+dev-restart-backend: ## Restart only backend
+	@docker compose -f docker-compose.prod.yml restart backend
+
+dev-restart-frontend: ## Restart only frontend
+	@docker compose -f docker-compose.prod.yml restart web
