@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+enum AlertType {
+  IGNITION_ON
+  IGNITION_OFF
+  OVERSPEED
+  GEOFENCE_ENTER
+  GEOFENCE_EXIT
+  DEVICE_OFFLINE
+  DEVICE_ONLINE
+  LOW_BATTERY
+  TOWING
+}
+
+enum NotificationChannel {
+  WEBSOCKET
+  EMAIL
+  PUSH
+}
+
+enum GeofenceType {
+  CIRCLE
+  POLYGON
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(CLIENT)
+  isActive  Boolean  @default(true)
+  phone     String?
+  emailVerified Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Limits
+  maxVehicles   Int @default(5)
+  maxGeofences  Int @default(10)
+
+  // Relations
+  vehicles      Vehicle[]
+  geofences     Geofence[]
+  alerts        Alert[]
+  subscriptions PushSubscription[]
+
+  @@map("users")
+}
+
+model Vehicle {
+  id          String  @id @default(uuid())
+  userId      String
+  name        String
+  plateNumber String?
+  imei        String  @unique
+  description String?
+  
+  // Device info
+  deviceModel     String?
+  deviceProtocol  String @default("GT06")
+  
+  // Status
+  isActive    Boolean @default(true)
+  lastPosition String? // JSON string of last known position
+  lastSeen    DateTime?
+  
+  // Odometer
+  odometer    Float @default(0)
+  
+  // Geofence alerts
+  geofenceAlertsEnabled Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions Position[]
+  alerts    Alert[]
+  geofenceStatuses GeofenceStatus[]
+
+  @@map("vehicles")
+}
+
+model Position {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  
+  // GPS Data
+  latitude    Float
+  longitude   Float
+  speed       Float    @default(0)
+  heading     Float    @default(0)
+  altitude    Float?
+  accuracy    Float?
+  
+  // Device Status
+  ignition    Boolean?
+  odometer    Float?
+  batteryLevel Float?
+  signalStrength Float?
+  
+  // Raw data
+  raw         String?
+  
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+
+  // Relations
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([vehicleId])
+  @@index([timestamp])
+  @@index([vehicleId, timestamp])
+  @@index([latitude, longitude])
+  @@map("positions")
+}
+
+model Geofence {
+  id          String       @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  type        GeofenceType @default(CIRCLE)
+  
+  // For CIRCLE: { center: { lat, lng }, radius: meters }
+  // For POLYGON: { coordinates: [{ lat, lng }, ...] }
+  geometry    String // JSON string
+  
+  // Alert settings
+  enterAlert  Boolean @default(true)
+  exitAlert   Boolean @default(true)
+  
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  statuses    GeofenceStatus[]
+
+  @@map("geofences")
+}
+
+model GeofenceStatus {
+  id          String @id @default(uuid())
+  geofenceId  String
+  vehicleId   String
+  isInside    Boolean @default(false)
+  enteredAt   DateTime?
+  exitedAt    DateTime?
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  geofence    Geofence @relation(fields: [geofenceId], references: [id], onDelete: Cascade)
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([geofenceId, vehicleId])
+  @@map("geofence_statuses")
+}
+
+model Alert {
+  id          String    @id @default(uuid())
+  userId      String
+  vehicleId   String
+  type        AlertType
+  message     String
+  
+  // Location when alert was triggered
+  latitude    Float?
+  longitude   Float?
+  
+  // Additional data
+  data        String? // JSON string
+  
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([userId, createdAt])
+  @@index([vehicleId, createdAt])
+  @@map("alerts")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@map("push_subscriptions")
+}
+
+model NotificationSetting {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  
+  // Channel preferences
+  emailEnabled Boolean @default(true)
+  pushEnabled  Boolean @default(true)
+  webEnabled   Boolean @default(true)
+  
+  // Alert type preferences
+  ignitionAlerts    Boolean @default(true)
+  overspeedAlerts   Boolean @default(true)
+  geofenceAlerts    Boolean @default(true)
+  offlineAlerts     Boolean @default(true)
+  lowBatteryAlerts  Boolean @default(true)
+  
+  // Speed limit for overspeed alerts (km/h)
+  speedLimit        Int     @default(80)
+  
+  updatedAt DateTime @updatedAt
+
+  @@map("notification_settings")
+}
+
+// System settings for admin configuration
+model SystemSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+  
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("system_settings")
+}
